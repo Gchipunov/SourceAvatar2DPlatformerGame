@@ -1,0 +1,126 @@
+How to make a vgui panel in main menu background some cool shader like spinning gears, do I modify unlitgeneric to some procedural bricks shader ?
+Yes, you can absolutely create a VGUI panel with a cool procedural shader like spinning gears. However, you won't be modifying UnlitGeneric; you'll be creating a brand-new custom shader.
+
+While you could make a procedural bricks shader, let's focus on your "spinning gears" idea, which involves animating and manipulating textures directly on the GPU.
+
+There are two main approaches: an easy method using an animated texture and the advanced (and much cooler) method using custom HLSL shader code.
+
+🎨 Method 1: The Easy Way (Animated Texture)
+This method doesn't use procedural generation but can achieve a "spinning gears" look if you pre-render the animation. You create a single texture file (.vtf) that contains all the frames of your animation.
+
+You then use the AnimatedTexture VMT proxy to cycle through them. This requires no shader coding.
+
+Example .vmt File:
+
+Save this as materials/vgui/animated_gears.vmt.
+
+Code snippet
+"UnlitGeneric"
+{
+    "$basetexture" "vgui/gears_animation_strip" // Your VTF with all frames
+    "$translucent" 1
+    "$ignorez" 1
+    "$vertexcolor" 1
+    "$vertexalpha" 1
+
+    "Proxies"
+    {
+        "AnimatedTexture"
+        {
+            "animatedtexturevar" "$basetexture"
+            "animatedtextureframenumvar" "$frame"
+            "animatedtextureframerate" "30" // Frames per second
+        }
+    }
+}
+Pros: Very simple to implement.
+Cons: Not truly procedural, requires you to create the animation beforehand, and can use more texture memory.
+
+⚙️ Method 2: The Advanced Way (Custom Procedural Shader)
+This is the "correct" way to do what you're asking. It involves writing your own shader in HLSL (High-Level Shading Language) that runs on the GPU. This gives you full control to create procedural patterns and real-time animations based on math.
+
+Here's a breakdown of the process.
+
+1. The VMT File (The Controller)
+
+First, you create a material file that points to your custom shader instead of UnlitGeneric.
+
+Example spinning_gears.vmt:
+
+Code snippet
+"SpinningGears" // The name of your custom shader
+{
+    "$basetexture" "models/props_combine/gear01" // A single gear texture
+    "$speed" "0.5" // A custom parameter for rotation speed
+    "$translucent" 1
+    "$ignorez" 1
+}
+2. The HLSL Shader File (The Brains)
+
+This is where the magic happens. You'll write a pixel shader (.fxc file) that calculates what each pixel's color should be. For spinning gears, the core idea is to rotate the texture coordinates (UVs) over time.
+
+Simplified HLSL Example (spinning_gears_ps20b.fxc):
+
+This code takes the incoming texture coordinate, rotates it around the center (0.5, 0.5), and then samples the texture.
+
+High-level shader language
+//--------------------------------------------------------------------------------------
+// Includes
+//--------------------------------------------------------------------------------------
+#include "common_ps_fxc.h"
+
+//--------------------------------------------------------------------------------------
+// Texture samplers
+//--------------------------------------------------------------------------------------
+sampler BaseTextureSampler : register( s0 );
+
+//--------------------------------------------------------------------------------------
+// Shader constants
+//--------------------------------------------------------------------------------------
+const float4 g_vConst0 : register( c0 );
+#define ps_Time (g_vConst0.x) // The engine passes time in this constant
+#define ps_Speed (g_vConst0.y) // Our custom speed parameter
+
+//--------------------------------------------------------------------------------------
+// Pixel Shader
+//--------------------------------------------------------------------------------------
+float4 main( float2 iTexCoord : TEXCOORD0 ) : COLOR
+{
+    // Define the center of rotation (the middle of the texture)
+    float2 center = float2( 0.5, 0.5 );
+
+    // Calculate the rotation angle based on time and our speed parameter
+    float angle = ps_Time * ps_Speed;
+    float s = sin( angle );
+    float c = cos( angle );
+
+    // Create a 2D rotation matrix and apply it to the texture coordinates
+    float2 rotatedTexCoord = iTexCoord - center; // Translate to origin
+    rotatedTexCoord = float2(
+        rotatedTexCoord.x * c - rotatedTexCoord.y * s,
+        rotatedTexCoord.x * s + rotatedTexCoord.y * c
+    );
+    rotatedTexCoord = rotatedTexCoord + center; // Translate back
+
+    // Sample the texture using the new, rotated coordinates
+    float4 baseColor = tex2D( BaseTextureSampler, rotatedTexCoord );
+    
+    return baseColor;
+}
+3. The C++ Code (The Glue)
+
+You also need to write a small amount of C++ code to define your shader and its parameters ($speed) to the engine. This involves creating a new file in your mod's src/materialsystem/shaders/ directory. This part is too complex for a brief overview, but it's a necessary step to make the engine recognize SpinningGears as a valid shader.
+
+How to Apply it to a VGUI Panel
+
+Once you have your custom material set up, applying it is easy. In your VGUI panel's code:
+
+C++
+#include "vgui_controls/ImagePanel.h"
+
+// In your panel's constructor or another setup function...
+vgui::ImagePanel* background = new vgui::ImagePanel(this, "Background");
+background->SetImage("vgui/spinning_gears"); // The material name (without .vmt)
+background->SetShouldScaleImage(true);
+background->SetZPos(-1); // Put it behind other elements
+This will create an ImagePanel that fills your main menu panel and draws your custom, animated shader. You could even layer multiple materials with different speeds and gear textures for a more complex effect.
